@@ -26,15 +26,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err != nil {
-		log.Fatal(err)
-	}
 	defer conn.Close()
 
 	go func() {
 		err := doEvio(conn)
 		if err != nil {
-			log.Println(err)
+			log.Fatal(err)
 		}
 	}()
 
@@ -105,7 +102,10 @@ func doEvio(conn *net.UDPConn) error {
 }
 
 func rotateResolvers(rs []string) (func() net.Addr, error) {
-	var addrs []*net.UDPAddr
+	var (
+		addrs []*net.UDPAddr
+		c     int
+	)
 	for i := range rs {
 		a, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", rs[i], "53"))
 		if err != nil {
@@ -113,8 +113,6 @@ func rotateResolvers(rs []string) (func() net.Addr, error) {
 		}
 		addrs = append(addrs, a)
 	}
-
-	c := 0
 
 	return func() net.Addr {
 		defer func() { c++ }()
