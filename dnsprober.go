@@ -65,7 +65,6 @@ func main() {
 	ticker := time.NewTicker(1 * time.Millisecond)
 
 	scanner = bufio.NewScanner(f)
-	i := 0
 	for scanner.Scan() {
 		select {
 		case <-ticker.C:
@@ -84,7 +83,6 @@ func main() {
 		case <-cancel:
 			break
 		}
-		i++
 	}
 
 	log.Println("waiting 15 seconds...")
