@@ -7,68 +7,79 @@ import (
 	"log"
 	"net"
 	"os"
-	"sync"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/ilyaglow/udpspoof"
+	"github.com/ilyaglow/evio"
 	"github.com/miekg/dns"
-	"github.com/tidwall/evio"
 )
 
-var (
-	domainsFile = flag.String("i", "domains.txt", "File with domains")
-	srcIP = "YOUR-IP"
+var domainsFile = flag.String("i", "domains.txt", "File with domains")
 
 func main() {
-	var wg sync.WaitGroup
-	wg.Add(1)
-	defer wg.Wait()
+	flag.Parse()
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{
+		IP:   net.ParseIP("8.8.8.8"),
+		Port: 53,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
 	go func() {
-		defer wg.Done()
-		err := doEvio()
+		err := doEvio(conn)
 		if err != nil {
 			log.Println(err)
 		}
 	}()
-
-	conn, err := udpspoof.NewUDPConn("8.8.8.8:53")
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	f, err := os.Open(*domainsFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	cancel := make(chan os.Signal, 1)
+	signal.Notify(cancel, syscall.SIGINT, syscall.SIGTERM)
+
+	ticker := time.NewTicker(1 * time.Millisecond)
+
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		m := new(dns.Msg)
-		m.SetQuestion(fmt.Sprintf("%s.", scanner.Text()), dns.TypeA)
-		b, err := m.Pack()
-		if err != nil {
-			log.Fatal(err)
-		}
+		select {
+		case <-ticker.C:
+			m := new(dns.Msg)
+			m.SetQuestion(fmt.Sprintf("%s.", scanner.Text()), dns.TypeA)
+			b, err := m.Pack()
+			if err != nil {
+				log.Fatal(err)
+			}
 
-		_, err = conn.WriteAs(net.ParseIP(srcIP), b)
-		if err != nil {
-			log.Fatal(err)
+			_, err = conn.Write(b)
+			if err != nil {
+				log.Fatal(err)
+			}
+		case <-cancel:
+			os.Exit(1)
 		}
 	}
+
+	log.Println("waiting 10 seconds...")
+	time.Sleep(10 * time.Second)
 }
 
-func doEvio() error {
+func doEvio(conn *net.UDPConn) error {
 	var events evio.Events
 	events.Data = func(c evio.Conn, in []byte) (out []byte, action evio.Action) {
-		log.Println(c.RemoteAddr())
-
 		m := new(dns.Msg)
 		err := m.Unpack(in)
 		if err != nil {
 			log.Println(err)
 		}
 
-		log.Println(m)
+		fmt.Println(m)
 		return
 	}
-	return evio.Serve(events, "udp://:54321?reuseport=true")
+	return evio.ServeUDPConn(events, conn)
 }
