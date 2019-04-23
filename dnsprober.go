@@ -15,14 +15,17 @@ import (
 	"github.com/miekg/dns"
 )
 
-var domainsFile = flag.String("i", "domains.txt", "File with domains")
+var (
+	domainsFile   = flag.String("i", "domains.txt", "File with domains")
+	resolversFile = flag.String("r", "resolvers.txt", "File with resolvers")
+)
 
 func main() {
 	flag.Parse()
-	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{
-		IP:   net.ParseIP("8.8.8.8"),
-		Port: 53,
-	})
+	conn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,6 +38,22 @@ func main() {
 		}
 	}()
 
+	r, err := os.Open(*resolversFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var resolvers []string
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		resolvers = append(resolvers, scanner.Text())
+	}
+
+	rotate, err := rotateResolver(resolvers)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	f, err := os.Open(*domainsFile)
 	if err != nil {
 		log.Fatal(err)
@@ -45,7 +64,8 @@ func main() {
 
 	ticker := time.NewTicker(1 * time.Millisecond)
 
-	scanner := bufio.NewScanner(f)
+	scanner = bufio.NewScanner(f)
+	i := 0
 	for scanner.Scan() {
 		select {
 		case <-ticker.C:
@@ -56,16 +76,18 @@ func main() {
 				log.Fatal(err)
 			}
 
-			_, err = conn.Write(b)
+			addr := rotate()
+			_, err = conn.WriteTo(b, addr)
 			if err != nil {
 				log.Fatal(err)
 			}
 		case <-cancel:
-			os.Exit(1)
+			break
 		}
+		i++
 	}
 
-	log.Println("waiting 10 seconds...")
+	log.Println("waiting 15 seconds...")
 	time.Sleep(10 * time.Second)
 }
 
@@ -82,4 +104,26 @@ func doEvio(conn *net.UDPConn) error {
 		return
 	}
 	return evio.ServeUDPConn(events, conn)
+}
+
+func rotateResolver(rs []string) (func() net.Addr, error) {
+	var addrs []*net.UDPAddr
+	for i := range rs {
+		a, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", rs[i], "53"))
+		if err != nil {
+			return nil, err
+		}
+		addrs = append(addrs, a)
+	}
+
+	c := 0
+
+	return func() net.Addr {
+		defer func() { c++ }()
+		if c == len(addrs) {
+			c = 0
+		}
+		log.Println(addrs[c])
+		return addrs[c]
+	}, nil
 }
