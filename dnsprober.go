@@ -49,7 +49,7 @@ func main() {
 		resolvers = append(resolvers, scanner.Text())
 	}
 
-	rotate, err := rotateResolver(resolvers)
+	rotate, err := rotateResolvers(resolvers)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func doEvio(conn *net.UDPConn) error {
 	return evio.ServeUDPConn(events, conn)
 }
 
-func rotateResolver(rs []string) (func() net.Addr, error) {
+func rotateResolvers(rs []string) (func() net.Addr, error) {
 	var addrs []*net.UDPAddr
 	for i := range rs {
 		a, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", rs[i], "53"))
