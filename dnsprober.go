@@ -121,7 +121,6 @@ func rotateResolvers(rs []string) (func() net.Addr, error) {
 		if c == len(addrs) {
 			c = 0
 		}
-		log.Println(addrs[c])
 		return addrs[c]
 	}, nil
 }
