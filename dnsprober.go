@@ -22,6 +22,7 @@ var (
 
 func main() {
 	flag.Parse()
+
 	conn, err := net.ListenUDP("udp", nil)
 	if err != nil {
 		log.Fatal(err)
@@ -46,7 +47,7 @@ func main() {
 		resolvers = append(resolvers, scanner.Text())
 	}
 
-	rotate, err := rotateResolvers(resolvers)
+	rotatedResolver, err := NewResolvers(resolvers)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -72,8 +73,8 @@ func main() {
 				log.Fatal(err)
 			}
 
-			addr := rotate()
-			_, err = conn.WriteTo(b, addr)
+			resolver := rotatedResolver()
+			_, err = conn.WriteTo(b, resolver)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -83,7 +84,7 @@ func main() {
 	}
 
 	log.Println("waiting 15 seconds...")
-	time.Sleep(10 * time.Second)
+	time.Sleep(15 * time.Second)
 }
 
 func doEvio(conn *net.UDPConn) error {
@@ -98,16 +99,19 @@ func doEvio(conn *net.UDPConn) error {
 		fmt.Println(m)
 		return
 	}
-	return evio.ServeUDPConn(events, conn)
+	return evio.ServePacketConn(events, conn)
 }
 
-func rotateResolvers(rs []string) (func() net.Addr, error) {
+// NewResolvers return a function for rotating resolvers in round-robin fashion
+// or a parsing error.
+// Resolvers should be in the form: ip:port. Only UDP resolvers are supported.
+func NewResolvers(rs []string) (func() net.Addr, error) {
 	var (
 		addrs []*net.UDPAddr
 		c     int
 	)
 	for i := range rs {
-		a, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", rs[i], "53"))
+		a, err := net.ResolveUDPAddr("udp", rs[i])
 		if err != nil {
 			return nil, err
 		}
