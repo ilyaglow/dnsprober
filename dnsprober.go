@@ -19,7 +19,7 @@ import (
 var (
 	domainsFile   = flag.String("i", "domains.txt", "File with domains")
 	resolversFile = flag.String("r", "resolvers.txt", "File with resolvers")
-	waitSecs      = flag.Int("t", 5, "Seconds to wait for incoming replies")
+	waitSecs      = flag.Int("t", 15, "Seconds to wait for incoming replies")
 	throttleMSecs = flag.Int("throttle", 10, "Microseconds to wait before sending new packet to socket")
 	rTypes        = flag.String("q", "A,AAAA,NS,MX,SOA,SRV", "Record types to query")
 )
