@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -111,6 +112,11 @@ func NewResolvers(rs []string) (func() net.Addr, error) {
 		c     int
 	)
 	for i := range rs {
+		parts = strings.Split(rs[i], ":")
+		if len(parts) == 1 {
+			rs[i] = rs[i] + ":53"
+		}
+
 		a, err := net.ResolveUDPAddr("udp", rs[i])
 		if err != nil {
 			return nil, err
