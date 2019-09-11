@@ -4,14 +4,15 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/ilyaglow/evio"
 	"github.com/miekg/dns"
 )
 
@@ -30,9 +31,24 @@ func main() {
 	defer conn.Close()
 
 	go func() {
-		err := doEvio(conn)
-		if err != nil {
-			log.Fatal(err)
+		buf := make([]byte, 4096)
+		for {
+			_, _, err := conn.ReadFrom(buf)
+			if err, ok := err.(net.Error); ok && err.Timeout() {
+				continue
+			}
+
+			if err == io.EOF {
+				break
+			}
+
+			m := new(dns.Msg)
+			err = m.Unpack(buf)
+			if err != nil {
+				log.Println(err)
+			}
+
+			fmt.Println(m)
 		}
 	}()
 
@@ -87,21 +103,6 @@ func main() {
 	time.Sleep(15 * time.Second)
 }
 
-func doEvio(conn *net.UDPConn) error {
-	var events evio.Events
-	events.Data = func(c evio.Conn, in []byte) (out []byte, action evio.Action) {
-		m := new(dns.Msg)
-		err := m.Unpack(in)
-		if err != nil {
-			log.Println(err)
-		}
-
-		fmt.Println(m)
-		return
-	}
-	return evio.ServePacketConn(events, conn)
-}
-
 // NewResolvers return a function for rotating resolvers in round-robin fashion
 // or a parsing error.
 // Resolvers should be in the form: ip:port. Only UDP resolvers are supported.
@@ -111,6 +112,11 @@ func NewResolvers(rs []string) (func() net.Addr, error) {
 		c     int
 	)
 	for i := range rs {
+		parts := strings.Split(rs[i], ":")
+		if len(parts) == 1 {
+			rs[i] = rs[i] + ":53"
+		}
+
 		a, err := net.ResolveUDPAddr("udp", rs[i])
 		if err != nil {
 			return nil, err
