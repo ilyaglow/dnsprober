@@ -19,6 +19,9 @@ import (
 var (
 	domainsFile   = flag.String("i", "domains.txt", "File with domains")
 	resolversFile = flag.String("r", "resolvers.txt", "File with resolvers")
+	waitSecs      = flag.Int("t", 5, "Seconds to wait for incoming replies")
+	throttleMSecs = flag.Int("throttle", 10, "Microseconds to wait before sending new packet to socket")
+	rTypes        = flag.String("q", "A,AAAA,NS,MX,SOA,SRV", "Record types to query")
 )
 
 func main() {
@@ -61,31 +64,35 @@ func main() {
 	cancel := make(chan os.Signal, 1)
 	signal.Notify(cancel, syscall.SIGINT, syscall.SIGTERM)
 
-	ticker := time.NewTicker(1 * time.Millisecond)
+	ticker := time.NewTicker(time.Duration(*throttleMSecs) * time.Microsecond)
+	types := csvToDNSTypes(*rTypes)
 
 	scanner = bufio.NewScanner(f)
 	for scanner.Scan() {
 		select {
-		case <-ticker.C:
-			m := new(dns.Msg)
-			m.SetQuestion(fmt.Sprintf("%s.", scanner.Text()), dns.TypeA)
-			b, err := m.Pack()
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			resolver := rotatedResolver()
-			_, err = conn.WriteTo(b, resolver)
-			if err != nil {
-				log.Fatal(err)
-			}
 		case <-cancel:
 			break
+		default:
+			for i := range types {
+				m := new(dns.Msg)
+				m.SetQuestion(fmt.Sprintf("%s.", scanner.Text()), types[i])
+				b, err := m.Pack()
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				resolver := rotatedResolver()
+				_, err = conn.WriteTo(b, resolver)
+				if err != nil {
+					log.Fatal(err)
+				}
+				<-ticker.C
+			}
 		}
 	}
 
-	log.Println("waiting 15 seconds...")
-	time.Sleep(15 * time.Second)
+	log.Printf("waiting %d seconds...", *waitSecs)
+	time.Sleep(time.Duration(*waitSecs) * time.Second)
 }
 
 func doEvio(conn *net.UDPConn) error {
@@ -105,7 +112,7 @@ func doEvio(conn *net.UDPConn) error {
 
 // NewResolvers return a function for rotating resolvers in round-robin fashion
 // or a parsing error.
-// Resolvers should be in the form: ip:port. Only UDP resolvers are supported.
+// Resolvers should be in the form: ip or ip:port. Only UDP resolvers are supported.
 func NewResolvers(rs []string) (func() net.Addr, error) {
 	var (
 		addrs []*net.UDPAddr
@@ -131,4 +138,20 @@ func NewResolvers(rs []string) (func() net.Addr, error) {
 		}
 		return addrs[c]
 	}, nil
+}
+
+func csvToDNSTypes(s string) []uint16 {
+	var types []uint16
+	qs := strings.Split(s, ",")
+
+	mm := make(map[string]uint16, len(dns.TypeToString))
+	for k, v := range dns.TypeToString {
+		mm[v] = k
+	}
+
+	for _, q := range qs {
+		types = append(types, mm[q])
+	}
+
+	return types
 }
