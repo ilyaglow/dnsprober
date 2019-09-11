@@ -112,6 +112,7 @@ func NewResolvers(rs []string) (func() net.Addr, error) {
 		c     int
 	)
 	for i := range rs {
+
 		parts := strings.Split(rs[i], ":")
 		if len(parts) == 1 {
 			rs[i] = rs[i] + ":53"
